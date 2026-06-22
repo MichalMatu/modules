@@ -1,52 +1,15 @@
-# ESP32 Battery OLED
+# ESP32 Battery OLED CC1101
 
-PlatformIO/Arduino base firmware for an ESP32 18650 board with an onboard
-0.96" 128x64 I2C OLED.
+PlatformIO/Arduino firmware for an ESP32 18650 board with an onboard 0.96"
+128x64 I2C OLED and a 433 MHz CC1101 transceiver module.
 
-The `main` branch is intentionally module-free. It provides the shared board
-baseline: serial startup logs, OLED initialization, a simple status screen, and
-FreeRTOS task wiring. Sensor and peripheral variants should live on dedicated
-branches.
+This is the `module/cc1101` branch. The module-free board baseline stays on
+`main`, while other hardware variants live on their own `module/*` branches.
 
-Current module branches:
-
-- `module/gps`: u-blox NEO-M8M GPS over UART2 with TinyGPSPlus parsing and OLED diagnostics.
-
-## Board Reference
-
-Target board: TTGO WiFi & Bluetooth Battery ESP32 0.96 Inch OLED Development Tool.
-
-Product photos and board details below are from the
-[HiTechChain product page](https://hitechchain.se/iot/ttgo/esp32-pico-kit-utvecklingsbord).
-
-![TTGO ESP32 OLED 18650 board front](docs/images/ttgo-battery-oled-front.jpeg)
-
-![TTGO ESP32 OLED 18650 board dimensions](docs/images/ttgo-battery-oled-dimensions.jpeg)
-
-![TTGO ESP32 OLED 18650 board battery side](docs/images/ttgo-battery-oled-back.jpeg)
-
-![TTGO ESP32 OLED board with OLED running](docs/images/ttgo-battery-oled-screen.jpeg)
-
-![TTGO ESP32 OLED 18650 board pinout](docs/images/ttgo-battery-oled-pinout.jpeg)
-
-![TTGO ESP32 OLED board alternate front view](docs/images/ttgo-battery-oled-front-screen.jpeg)
-
-Short board specification:
-
-- ESP32 development board with Wi-Fi and Bluetooth.
-- ESP32-WROOM-32 module on the board revision shown in the product photos.
-- Integrated 0.96" OLED.
-- 18650 cell holder and onboard charging system.
-- USB, 5 V, or 18650 power input paths.
-- Charging and running at the same time are supported by the board.
-- Charge indicator LED: red while charging, green when full.
-- Power switch on the board.
-- Extra programmable LED connected to `GPIO16` / `D0`.
-- Listed charging current: 0.5 A.
-- Listed output current: 1 A.
-- Over-charge and over-discharge protection.
-- Full ESP32 pin breakout.
-- Product image marks approximate board dimensions as 114 mm x 28.25 mm x 17.6 mm.
+The CC1101 branch is receive-only by default. It initializes a 433 MHz CC1101
+over SPI, listens for FSK packets, prints packet diagnostics to Serial Monitor,
+and renders receiver state on the onboard OLED. No transmit path is enabled in
+this firmware.
 
 ## Hardware
 
@@ -57,6 +20,31 @@ Target board:
 - Onboard OLED 0.96" 128x64 I2C
 - USB, 5 V, or 18650 power
 - 3.3 V GPIO logic
+
+CC1101 module:
+
+- Nettigo product: <https://nettigo.pl/products/modul-cc1101-transceiver-433-mhz-z-antena>
+- CC1101 transceiver module for 433 MHz
+- included 433 MHz antenna
+- 2x4 THT header, 2.54 mm pitch
+- supply voltage listed by Nettigo: `1.8 V - 3.6 V`
+
+Use `3V3` only. Do not connect this module to 5 V.
+
+## Pinout
+
+CC1101 to ESP32:
+
+| CC1101 pin | ESP32 |
+| --- | --- |
+| GND | GND |
+| Vcc | 3V3 |
+| GD00 | GPIO26 |
+| CSN | GPIO27 |
+| SCK | GPIO18 |
+| MOSI | GPIO23 |
+| MISO/GD01 | GPIO19 |
+| GD02 | GPIO25 |
 
 Onboard OLED:
 
@@ -81,22 +69,30 @@ pio run -t upload
 pio device monitor -b 115200
 ```
 
-The base firmware uses:
+The firmware uses:
 
+- CC1101 frequency: `433.92 MHz`
+- FSK bit rate: `4.8 kbps`
+- frequency deviation: `5.0 kHz`
+- receiver bandwidth: `125.0 kHz`
+- SPI: `SCK=GPIO18`, `MISO=GPIO19`, `MOSI=GPIO23`, `CSN=GPIO27`
+- interrupts: `GDO0=GPIO26`, `GDO2=GPIO25`
 - OLED I2C: `SDA=GPIO5`, `SCL=GPIO4`
 - Serial Monitor: `115200`
-- FreeRTOS tasks for OLED rendering and periodic serial diagnostics
 
 ## Project Layout
 
 ```text
 include/
-  AppConfig.h          board pins, timings, task stack sizes and priorities
+  AppConfig.h          hardware pins, radio settings, timings and task config
   AppTasks.h           FreeRTOS task bootstrap
+  Cc1101Service.h      CC1101 receive service API
+  Cc1101Snapshot.h     thread-safe CC1101 data snapshot shape
   DiagnosticsLogger.h  Serial Monitor diagnostics API
   DisplayRenderer.h    OLED rendering API
 src/
   AppTasks.cpp         task creation and task loops
+  Cc1101Service.cpp
   DiagnosticsLogger.cpp
   DisplayRenderer.cpp
   main.cpp             Arduino setup/loop entrypoint
@@ -104,54 +100,97 @@ lib/
   U8g2/                local vendored OLED library
 ```
 
+`Cc1101Service` owns the RadioLib `CC1101` instance and publishes a
+`Cc1101Snapshot` behind a FreeRTOS mutex, so the OLED and diagnostics tasks
+never read radio state while the receive task is updating packet data.
+
 ## FreeRTOS Tasks
 
 | Task | Core | Priority | Period | Responsibility |
 | --- | ---: | ---: | ---: | --- |
-| `oled-render` | 1 | 2 | 500 ms | Render boot and base status screens |
-| `serial-diag` | 0 | 1 | 5000 ms | Print periodic heartbeat diagnostics |
+| `cc1101-rx` | 1 | 3 | 20 ms | Handle CC1101 receive interrupts and packet reads |
+| `oled-render` | 1 | 2 | 500 ms | Render boot, missing-radio, listening, or packet screen |
+| `serial-diag` | 0 | 1 | 2000 ms | Print structured diagnostic lines |
 
 The Arduino `loop()` is intentionally idle and only calls `vTaskDelay()`.
 
-## Local Libraries
+## Libraries
 
-U8g2 is stored in `lib/`, so the project builds from a local copy instead of
-downloading the library into `.pio/libdeps`.
+U8g2 is stored in `lib/`, so the OLED driver builds from a local copy.
 
-To refresh U8g2 manually, temporarily add it back to `lib_deps`, run `pio run`,
-then copy the resolved package from `.pio/libdeps/esp32dev/` into `lib/U8g2`.
+CC1101 support is pulled through PlatformIO:
 
-Module branches may add their own local libraries when needed.
+```ini
+lib_deps =
+    jgromes/RadioLib @ 7.7.1
+```
 
 ## OLED Screens
 
-At boot, the OLED shows the repository baseline name, OLED pins, and Serial
-Monitor speed.
+At boot, the OLED shows the CC1101 module name, receive-only mode, SPI pins, and
+interrupt pins.
 
-After the boot screen, the OLED shows:
+If the radio is not detected, the OLED shows:
 
-- base firmware ready status
-- uptime
-- OLED I2C pins
-- reminder that module variants live on branches
+- `CC1101 FAIL`
+- RadioLib state code
+- SPI/power wiring hint
+- last retry timestamp
 
-All OLED screens use only the first five text rows to avoid the damaged bottom
-line on this board.
+When listening, the OLED shows:
 
-## Branch Workflow
+- receive frequency
+- listen state
+- packet count
+- last RSSI
+- CRC and receive error counters
 
-Use `main` as the starting point for a new hardware configuration:
+When a packet is received, the OLED briefly shows:
 
-```sh
-git switch main
-git switch -c module/<name>
-```
+- packet length
+- RSSI and LQI
+- packet count
+- first bytes as hex preview
 
-Keep module-specific code, libraries, wiring notes, and troubleshooting in that
-module branch. When replacing an internal API or config shape inside a branch,
-migrate its current callers and remove the old path in the same change.
+## Serial Monitor
+
+The Serial Monitor prints startup messages, radio initialization attempts, and
+periodic diagnostic lines:
+
+- radio presence
+- listen state
+- frequency
+- packet count
+- CRC and receive error count
+- RSSI and LQI
+- last packet length and hex preview
+
+## Radio Notes
+
+This firmware is receive-only. Do not enable transmission unless you know the
+legal frequency, bandwidth, duty-cycle, and output-power limits for your region
+and use case.
+
+The receiver only decodes packets using the same FSK settings as configured in
+`include/AppConfig.h`. Many 433 MHz devices use OOK/ASK or proprietary packet
+formats, so seeing only RSSI activity or no packets can be normal.
 
 ## Troubleshooting
+
+CC1101 missing:
+
+- Confirm `Vcc` is connected to `3V3`, not 5 V.
+- Confirm `GND` is common with ESP32.
+- Confirm SPI pins: `SCK=18`, `MISO=19`, `MOSI=23`, `CSN=27`.
+- Confirm interrupt pins: `GD00=26`, `GD02=25`.
+- Keep the antenna connected before using the radio.
+
+No packets:
+
+- Confirm the transmitter uses compatible FSK settings.
+- Try changing `Cc1101FrequencyMhz` in `include/AppConfig.h` to match the exact source.
+- Try changing bit rate, deviation, receiver bandwidth, and sync word if the source protocol is known.
+- Remember that many remote controls and weather sensors use OOK/ASK, not this default FSK packet mode.
 
 OLED does not display:
 

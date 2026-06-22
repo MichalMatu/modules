@@ -17,6 +17,7 @@ private:
     uint32_t startedAtMs_ = 0;
 
     void drawLine(uint8_t row, const char *text);
+    void drawFingerPromptIcon();
     void renderBootScreen();
     void renderSensorMissingScreen(const Max30100Snapshot &snapshot);
     void renderWaitingFingerScreen(const Max30100Snapshot &snapshot);

@@ -170,8 +170,7 @@ SpO2 calculation. A value of `0` means the reading is not valid yet.
 
 ## OLED Screens
 
-At boot, the OLED shows the MAX30100 module name, I2C address, OLED pins, and a
-finger placement prompt.
+At boot, the OLED shows a full-screen finger-over-sensor prompt icon.
 
 If the sensor is not detected, the OLED shows:
 
@@ -182,10 +181,7 @@ If the sensor is not detected, the OLED shows:
 
 If the sensor is detected but readings are not valid yet, the OLED shows:
 
-- `PLACE FINGER`
-- pending BPM and SpO2 values
-- beat counter
-- current red LED bias index
+- a full-screen finger-over-sensor prompt icon
 
 When readings are available, the OLED shows:
 

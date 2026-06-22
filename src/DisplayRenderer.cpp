@@ -26,16 +26,38 @@ void DisplayRenderer::drawLine(uint8_t row, const char *text)
     display_.drawStr(0, 8 + row * 10, text);
 }
 
+void DisplayRenderer::drawFingerPromptIcon()
+{
+    display_.drawRFrame(49, 1, 30, 48, 12);
+    display_.drawRFrame(55, 7, 18, 36, 8);
+    display_.drawVLine(64, 42, 8);
+
+    display_.drawRFrame(28, 49, 72, 14, 4);
+    display_.drawHLine(42, 55, 44);
+    display_.drawHLine(48, 59, 32);
+
+    display_.drawLine(25, 12, 38, 25);
+    display_.drawLine(38, 25, 31, 25);
+    display_.drawLine(38, 25, 38, 18);
+
+    display_.drawLine(103, 12, 90, 25);
+    display_.drawLine(90, 25, 97, 25);
+    display_.drawLine(90, 25, 90, 18);
+
+    display_.drawLine(16, 31, 28, 41);
+    display_.drawLine(28, 41, 22, 41);
+    display_.drawLine(28, 41, 28, 35);
+
+    display_.drawLine(112, 31, 100, 41);
+    display_.drawLine(100, 41, 106, 41);
+    display_.drawLine(100, 41, 100, 35);
+}
+
 void DisplayRenderer::renderBootScreen()
 {
     I2cBus::lock();
     display_.clearBuffer();
-    display_.setFont(u8g2_font_5x8_tf);
-    drawLine(0, "ESP32 MAX30100");
-    drawLine(1, "BPM + SpO2");
-    drawLine(2, "I2C addr 0x57");
-    drawLine(3, "OLED SDA5 SCL4");
-    drawLine(4, "Place finger");
+    drawFingerPromptIcon();
     display_.sendBuffer();
     I2cBus::unlock();
 }
@@ -62,19 +84,10 @@ void DisplayRenderer::renderSensorMissingScreen(const Max30100Snapshot &snapshot
 
 void DisplayRenderer::renderWaitingFingerScreen(const Max30100Snapshot &snapshot)
 {
-    char line[24];
-
+    (void)snapshot;
     I2cBus::lock();
     display_.clearBuffer();
-    display_.setFont(u8g2_font_5x8_tf);
-    drawLine(0, "PLACE FINGER");
-    drawLine(1, "BPM --.-");
-    drawLine(2, "SpO2 --%");
-    snprintf(line, sizeof(line), "Beats %lu",
-             static_cast<unsigned long>(snapshot.beatCount));
-    drawLine(3, line);
-    snprintf(line, sizeof(line), "LED bias %u", snapshot.redLedCurrentBias);
-    drawLine(4, line);
+    drawFingerPromptIcon();
     display_.sendBuffer();
     I2cBus::unlock();
 }

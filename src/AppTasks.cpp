@@ -5,27 +5,43 @@
 #include "AppConfig.h"
 #include "DiagnosticsLogger.h"
 #include "DisplayRenderer.h"
+#include "Max30100Service.h"
 
 namespace {
 
+Max30100Service max30100Service;
 DisplayRenderer displayRenderer;
+
+void max30100Task(void *)
+{
+    for (;;) {
+        max30100Service.poll();
+        vTaskDelay(pdMS_TO_TICKS(AppConfig::Max30100TaskDelayMs));
+    }
+}
 
 void displayTask(void *)
 {
+    Max30100Snapshot snapshot;
     TickType_t lastWake = xTaskGetTickCount();
 
     for (;;) {
-        displayRenderer.render();
+        if (max30100Service.snapshot(snapshot)) {
+            displayRenderer.render(snapshot);
+        }
         vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(AppConfig::ScreenRefreshMs));
     }
 }
 
 void diagnosticsTask(void *)
 {
+    Max30100Snapshot snapshot;
     TickType_t lastWake = xTaskGetTickCount();
 
     for (;;) {
-        DiagnosticsLogger::printHeartbeat();
+        if (max30100Service.snapshot(snapshot)) {
+            DiagnosticsLogger::printSnapshot(snapshot);
+        }
         vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(AppConfig::DiagnosticLogMs));
     }
 }
@@ -53,6 +69,18 @@ bool startApplicationTasks()
     displayRenderer.begin();
     DiagnosticsLogger::printStartup();
 
+    if (!max30100Service.begin()) {
+        Serial.println("[fatal] MAX30100 service init failed");
+        return false;
+    }
+
+    const bool max30100Created = createPinnedTask(
+        max30100Task,
+        "max30100",
+        AppConfig::Max30100TaskStack,
+        AppConfig::Max30100TaskPriority,
+        AppConfig::Max30100TaskCore);
+
     const bool displayCreated = createPinnedTask(
         displayTask,
         "oled-render",
@@ -67,7 +95,7 @@ bool startApplicationTasks()
         AppConfig::DiagnosticsTaskPriority,
         AppConfig::DiagnosticsTaskCore);
 
-    if (!displayCreated || !diagnosticsCreated) {
+    if (!max30100Created || !displayCreated || !diagnosticsCreated) {
         Serial.println("[fatal] FreeRTOS task creation failed");
         return false;
     }

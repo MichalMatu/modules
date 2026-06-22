@@ -1,16 +1,18 @@
-# ESP32 Battery OLED
+# ESP32 Battery OLED MAX30100
 
-PlatformIO/Arduino base firmware for an ESP32 18650 board with an onboard
-0.96" 128x64 I2C OLED.
+PlatformIO/Arduino firmware for an ESP32 18650 board with an onboard 0.96"
+128x64 I2C OLED and a MAX30100 pulse oximeter module.
 
-The `main` branch is intentionally module-free. It provides the shared board
-baseline: serial startup logs, OLED initialization, a simple status screen, and
-FreeRTOS task wiring. Sensor and peripheral variants should live on dedicated
-branches.
+This is the `module/max30100` branch. The module-free board baseline stays on
+`main`, while other hardware variants live on their own `module/*` branches.
 
-Current module branches:
+The MAX30100 branch reads heart-rate and SpO2 values over the shared I2C bus,
+prints compact Serial Monitor diagnostics, and renders sensor state on the
+onboard OLED using only the first five rows because this board's bottom OLED
+line is damaged.
 
-- `module/gps`: u-blox NEO-M8M GPS over UART2 with TinyGPSPlus parsing and OLED diagnostics.
+This firmware is for hobby diagnostics and development. It is not a medical
+device and its readings must not be used for health decisions.
 
 ## Board Reference
 
@@ -58,6 +60,26 @@ Target board:
 - USB, 5 V, or 18650 power
 - 3.3 V GPIO logic
 
+MAX30100 module:
+
+- MAX30100 pulse oximeter and heart-rate sensor
+- red and IR LEDs with photodetector
+- I2C interface
+- default I2C address: `0x57`
+- product reference: <https://sklep.msalamon.pl/produkt/czujnik-tetna-i-poziomu-tlenu-we-krwi-max30100/>
+
+## Pinout
+
+MAX30100 and onboard OLED share the same I2C bus:
+
+| MAX30100 module | ESP32 |
+| --- | --- |
+| VCC | 3V3 |
+| GND | GND |
+| SDA | GPIO5 |
+| SCL | GPIO4 |
+| INT | Not connected |
+
 Onboard OLED:
 
 | OLED | ESP32 |
@@ -65,7 +87,12 @@ Onboard OLED:
 | SDA | GPIO5 |
 | SCL | GPIO4 |
 
-Pins to avoid for add-on modules unless a branch documents otherwise:
+Use `3V3` first. ESP32 GPIO is not 5 V tolerant, so do not use a breakout that
+pulls `SDA` or `SCL` to 5 V unless you add level shifting. The linked product
+page lists a wide power range, but also notes default logic at 1.8 V, so verify
+the exact breakout revision before wiring it permanently.
+
+Pins to avoid for add-on modules:
 
 - `GPIO1` / `GPIO3`: USB serial and upload
 - `GPIO6` - `GPIO11`: ESP32 flash
@@ -81,77 +108,125 @@ pio run -t upload
 pio device monitor -b 115200
 ```
 
-The base firmware uses:
+The firmware uses:
 
-- OLED I2C: `SDA=GPIO5`, `SCL=GPIO4`
+- MAX30100 I2C: address `0x57`
+- shared I2C: `SDA=GPIO5`, `SCL=GPIO4`, `400 kHz`
 - Serial Monitor: `115200`
-- FreeRTOS tasks for OLED rendering and periodic serial diagnostics
+- FreeRTOS tasks for MAX30100 polling, OLED rendering, and diagnostics
 
 ## Project Layout
 
 ```text
 include/
-  AppConfig.h          board pins, timings, task stack sizes and priorities
-  AppTasks.h           FreeRTOS task bootstrap
-  DiagnosticsLogger.h  Serial Monitor diagnostics API
-  DisplayRenderer.h    OLED rendering API
+  AppConfig.h             hardware pins, timings, task stack sizes and priorities
+  AppTasks.h              FreeRTOS task bootstrap
+  DiagnosticsLogger.h     Serial Monitor diagnostics API
+  DisplayRenderer.h       OLED rendering API
+  I2cBus.h                shared I2C bus lock/init API
+  Max30100Service.h       MAX30100 service API
+  Max30100Snapshot.h      thread-safe MAX30100 data snapshot shape
 src/
-  AppTasks.cpp         task creation and task loops
+  AppTasks.cpp            task creation and task loops
   DiagnosticsLogger.cpp
   DisplayRenderer.cpp
-  main.cpp             Arduino setup/loop entrypoint
+  I2cBus.cpp
+  Max30100Service.cpp
+  main.cpp                Arduino setup/loop entrypoint
 lib/
-  U8g2/                local vendored OLED library
+  U8g2/                   local vendored OLED library
 ```
+
+`Max30100Service` owns `PulseOximeter` from `MAX30100lib` and publishes a
+`Max30100Snapshot` behind a FreeRTOS mutex, so the OLED and diagnostics tasks
+never read sensor internals while the polling task is updating the sample
+pipeline.
+
+`I2cBus` initializes the shared ESP32 I2C bus and serializes OLED and MAX30100
+transactions from separate FreeRTOS tasks.
 
 ## FreeRTOS Tasks
 
 | Task | Core | Priority | Period | Responsibility |
 | --- | ---: | ---: | ---: | --- |
-| `oled-render` | 1 | 2 | 500 ms | Render boot and base status screens |
-| `serial-diag` | 0 | 1 | 5000 ms | Print periodic heartbeat diagnostics |
+| `max30100` | 1 | 3 | 5 ms | Poll MAX30100 and publish readings |
+| `oled-render` | 1 | 2 | 500 ms | Render boot, missing-sensor, waiting, or measurement screen |
+| `serial-diag` | 0 | 1 | 2000 ms | Print structured diagnostic lines |
 
 The Arduino `loop()` is intentionally idle and only calls `vTaskDelay()`.
 
-## Local Libraries
+## Libraries
 
-U8g2 is stored in `lib/`, so the project builds from a local copy instead of
-downloading the library into `.pio/libdeps`.
+U8g2 is stored in `lib/`, so the OLED driver builds from a local copy.
 
-To refresh U8g2 manually, temporarily add it back to `lib_deps`, run `pio run`,
-then copy the resolved package from `.pio/libdeps/esp32dev/` into `lib/U8g2`.
+MAX30100 support is pulled through PlatformIO:
 
-Module branches may add their own local libraries when needed.
+```ini
+lib_deps =
+    oxullo/MAX30100lib @ ^1.2.1
+```
+
+The library's `PulseOximeter` helper provides beat detection, heart-rate, and
+SpO2 calculation. A value of `0` means the reading is not valid yet.
 
 ## OLED Screens
 
-At boot, the OLED shows the repository baseline name, OLED pins, and Serial
-Monitor speed.
+At boot, the OLED shows the MAX30100 module name, I2C address, OLED pins, and a
+finger placement prompt.
 
-After the boot screen, the OLED shows:
+If the sensor is not detected, the OLED shows:
 
-- base firmware ready status
-- uptime
-- OLED I2C pins
-- reminder that module variants live on branches
+- `MAX30100 FAIL`
+- I2C/power wiring hint
+- address `0x57`
+- last retry timestamp
+
+If the sensor is detected but readings are not valid yet, the OLED shows:
+
+- `PLACE FINGER`
+- pending BPM and SpO2 values
+- beat counter
+- current red LED bias index
+
+When readings are available, the OLED shows:
+
+- heart rate in BPM
+- SpO2 percentage
+- recent beat indicator
+- beat count
+- current red LED bias index
 
 All OLED screens use only the first five text rows to avoid the damaged bottom
 line on this board.
 
-## Branch Workflow
+## Serial Monitor
 
-Use `main` as the starting point for a new hardware configuration:
+The Serial Monitor prints startup messages, sensor detection attempts, and
+periodic diagnostic lines:
 
-```sh
-git switch main
-git switch -c module/<name>
-```
-
-Keep module-specific code, libraries, wiring notes, and troubleshooting in that
-module branch. When replacing an internal API or config shape inside a branch,
-migrate its current callers and remove the old path in the same change.
+- sensor presence
+- BPM and validity flag
+- SpO2 and validity flag
+- recent beat flag
+- beat count
+- red LED current bias index
 
 ## Troubleshooting
+
+MAX30100 missing:
+
+- Confirm `VCC` is connected to `3V3` and `GND` to `GND`.
+- Confirm `SDA=GPIO5` and `SCL=GPIO4`.
+- Scan the bus if another I2C address is suspected; this firmware expects `0x57`.
+- Verify that pull-ups on the MAX30100 breakout do not pull the bus to 5 V.
+- Keep a stable finger contact on the optical window; no reading is expected in open air.
+
+No stable BPM or SpO2:
+
+- Keep the finger still and cover both LEDs and the detector.
+- Avoid strong ambient light hitting the sensor.
+- Wait several seconds for the beat detector and SpO2 calculator to stabilize.
+- Try lowering or raising LED current in `src/Max30100Service.cpp` if your breakout saturates or reads weakly.
 
 OLED does not display:
 

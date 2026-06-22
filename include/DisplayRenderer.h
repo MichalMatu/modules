@@ -3,12 +3,14 @@
 #include <Arduino.h>
 #include <U8g2lib.h>
 
+#include "Max30100Snapshot.h"
+
 class DisplayRenderer {
 public:
     DisplayRenderer();
 
     void begin();
-    void render();
+    void render(const Max30100Snapshot &snapshot);
 
 private:
     U8G2_SSD1306_128X64_NONAME_F_HW_I2C display_;
@@ -16,5 +18,7 @@ private:
 
     void drawLine(uint8_t row, const char *text);
     void renderBootScreen();
-    void renderStatusScreen();
+    void renderSensorMissingScreen(const Max30100Snapshot &snapshot);
+    void renderWaitingFingerScreen(const Max30100Snapshot &snapshot);
+    void renderMeasurementScreen(const Max30100Snapshot &snapshot);
 };

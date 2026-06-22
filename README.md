@@ -7,8 +7,7 @@ This is the `module/oled-buttons-lolin32-battery` branch. It starts from the
 `board/esp32-lolin32-battery` baseline and is reserved for the OLED/button
 panel wiring and firmware.
 
-Display/button pinout is intentionally left open until the actual wiring is
-chosen.
+The current firmware initializes the OLED and shows a simple button test screen.
 
 ## Board Reference
 
@@ -58,17 +57,23 @@ Planned wiring:
 
 | OLED/button module | LOLIN32 ESP32 |
 | --- | --- |
-| VCC / 3V3 | TBD |
-| GND | TBD |
-| SDA | TBD |
-| SCL | TBD |
-| Button 1 | TBD |
-| Button 2 | TBD |
-| Button 3 | TBD |
-| Button 4 | TBD |
+| VCC / 3V3 | 3V3 |
+| GND | GND |
+| SDA | GPIO25 |
+| SCL | GPIO26 |
+| Button 1 | GPIO34 |
+| Button 2 | GPIO35 |
+| Button 3 | GPIO32 |
+| Button 4 | GPIO33 |
 
 The Arduino `lolin32` variant uses `SDA=GPIO21` and `SCL=GPIO22` as default
-I2C pins, but this branch will follow the actual wiring used on the build.
+I2C pins. This branch intentionally overrides I2C to `SDA=GPIO25` and
+`SCL=GPIO26`.
+
+Buttons are treated as active-low inputs. `GPIO32` and `GPIO33` use ESP32
+internal pull-ups. `GPIO34` and `GPIO35` are input-only pins and do not support
+internal pull-ups, so Button 1 and Button 2 need pull-ups on the OLED/button
+module or external pull-up resistors.
 
 ## Pins To Avoid
 
@@ -89,9 +94,12 @@ pio run -t upload
 pio device monitor -b 115200
 ```
 
-For now, this branch still uses only Serial Monitor at `115200` and one
-periodic FreeRTOS diagnostics task. OLED/button firmware will be added after
-the final pinout is known.
+The firmware uses:
+
+- OLED I2C: `SDA=GPIO25`, `SCL=GPIO26`
+- buttons: `B1=GPIO34`, `B2=GPIO35`, `B3=GPIO32`, `B4=GPIO33`
+- Serial Monitor: `115200`
+- FreeRTOS tasks for OLED rendering and periodic serial diagnostics
 
 ## Project Layout
 
@@ -100,9 +108,11 @@ include/
   AppConfig.h          board timings and task config
   AppTasks.h           FreeRTOS task bootstrap
   DiagnosticsLogger.h  Serial Monitor diagnostics API
+  DisplayRenderer.h    OLED rendering API
 src/
   AppTasks.cpp         task creation and task loops
   DiagnosticsLogger.cpp
+  DisplayRenderer.cpp
   main.cpp             Arduino setup/loop entrypoint
 ```
 
@@ -110,6 +120,7 @@ src/
 
 | Task | Core | Priority | Period | Responsibility |
 | --- | ---: | ---: | ---: | --- |
+| `oled-render` | 1 | 2 | 250 ms | Render boot and button test screens |
 | `serial-diag` | 0 | 1 | 5000 ms | Print periodic heartbeat diagnostics |
 
 The Arduino `loop()` is intentionally idle and only calls `vTaskDelay()`.

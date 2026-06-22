@@ -35,16 +35,16 @@ Use `3V3` only. Do not connect this module to 5 V.
 
 CC1101 to ESP32:
 
-| CC1101 pin | ESP32 |
-| --- | --- |
-| GND | GND |
-| Vcc | 3V3 |
-| GD00 | GPIO26 |
-| CSN | GPIO27 |
-| SCK | GPIO18 |
-| MOSI | GPIO23 |
-| MISO/GD01 | GPIO19 |
-| GD02 | GPIO25 |
+| CC1101 pin number | CC1101 signal | ESP32 |
+| ---: | --- | --- |
+| 1 | GND | GND |
+| 2 | Vcc | 3V3 |
+| 3 | GD00 | GPIO26 |
+| 4 | CSN | GPIO27 |
+| 5 | SCK | GPIO18 |
+| 6 | MOSI | GPIO23 |
+| 7 | MISO/GD01 | GPIO19 |
+| 8 | GD02 | GPIO25 |
 
 Onboard OLED:
 

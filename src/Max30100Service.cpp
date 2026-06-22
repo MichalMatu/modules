@@ -7,7 +7,7 @@ Max30100Service *Max30100Service::activeService_ = nullptr;
 
 namespace {
 
-constexpr LEDCurrent Max30100IrLedCurrent = MAX30100_LED_CURR_24MA;
+constexpr LEDCurrent Max30100IrLedCurrent = MAX30100_LED_CURR_27_1MA;
 
 } // namespace
 

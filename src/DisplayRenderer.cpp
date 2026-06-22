@@ -3,6 +3,13 @@
 #include "AppConfig.h"
 #include "I2cBus.h"
 
+namespace {
+
+constexpr float DisplaySmoothingAlpha = 0.25f;
+constexpr uint32_t BeatsForFullSignalProgress = 5;
+
+} // namespace
+
 DisplayRenderer::DisplayRenderer()
     : display_(U8G2_R2,
                U8X8_PIN_NONE,
@@ -53,6 +60,43 @@ void DisplayRenderer::drawFingerPromptIcon()
     display_.drawLine(100, 41, 100, 35);
 }
 
+void DisplayRenderer::drawSignalProgress(uint32_t beatCount)
+{
+    const uint32_t cappedBeatCount = beatCount > BeatsForFullSignalProgress
+                                         ? BeatsForFullSignalProgress
+                                         : beatCount;
+    const uint8_t width = static_cast<uint8_t>((68 * cappedBeatCount) /
+                                               BeatsForFullSignalProgress);
+
+    display_.drawRFrame(29, 50, 70, 12, 3);
+    if (width > 0) {
+        display_.drawBox(31, 52, width, 8);
+    }
+}
+
+void DisplayRenderer::updateSmoothedValues(const Max30100Snapshot &snapshot)
+{
+    if (snapshot.heartRateValid) {
+        if (!hasSmoothedHeartRate_) {
+            smoothedHeartRateBpm_ = snapshot.heartRateBpm;
+            hasSmoothedHeartRate_ = true;
+        } else {
+            smoothedHeartRateBpm_ +=
+                (snapshot.heartRateBpm - smoothedHeartRateBpm_) * DisplaySmoothingAlpha;
+        }
+    }
+
+    if (snapshot.spo2Valid) {
+        if (!hasSmoothedSpo2_) {
+            smoothedSpo2_ = static_cast<float>(snapshot.spo2);
+            hasSmoothedSpo2_ = true;
+        } else {
+            smoothedSpo2_ +=
+                (static_cast<float>(snapshot.spo2) - smoothedSpo2_) * DisplaySmoothingAlpha;
+        }
+    }
+}
+
 void DisplayRenderer::renderBootScreen()
 {
     I2cBus::lock();
@@ -92,21 +136,34 @@ void DisplayRenderer::renderWaitingFingerScreen(const Max30100Snapshot &snapshot
     I2cBus::unlock();
 }
 
+void DisplayRenderer::renderAcquiringSignalScreen(const Max30100Snapshot &snapshot)
+{
+    I2cBus::lock();
+    display_.clearBuffer();
+    drawFingerPromptIcon();
+    drawSignalProgress(snapshot.beatCount);
+    display_.sendBuffer();
+    I2cBus::unlock();
+}
+
 void DisplayRenderer::renderMeasurementScreen(const Max30100Snapshot &snapshot)
 {
     char bpmValue[8];
     char spo2Value[8];
     char statusLine[32];
 
-    if (snapshot.heartRateValid) {
-        const uint16_t bpm = static_cast<uint16_t>(snapshot.heartRateBpm + 0.5f);
+    updateSmoothedValues(snapshot);
+
+    if (hasSmoothedHeartRate_ && snapshot.heartRateValid) {
+        const uint16_t bpm = static_cast<uint16_t>(smoothedHeartRateBpm_ + 0.5f);
         snprintf(bpmValue, sizeof(bpmValue), "%u", bpm);
     } else {
         snprintf(bpmValue, sizeof(bpmValue), "--");
     }
 
-    if (snapshot.spo2Valid) {
-        snprintf(spo2Value, sizeof(spo2Value), "%u", snapshot.spo2);
+    if (hasSmoothedSpo2_ && snapshot.spo2Valid) {
+        const uint8_t spo2 = static_cast<uint8_t>(smoothedSpo2_ + 0.5f);
+        snprintf(spo2Value, sizeof(spo2Value), "%u", spo2);
     } else {
         snprintf(spo2Value, sizeof(spo2Value), "--");
     }
@@ -147,6 +204,11 @@ void DisplayRenderer::render(const Max30100Snapshot &snapshot)
     }
 
     if (!snapshot.heartRateValid && !snapshot.spo2Valid) {
+        if (snapshot.beatCount > 0) {
+            renderAcquiringSignalScreen(snapshot);
+            return;
+        }
+
         renderWaitingFingerScreen(snapshot);
         return;
     }

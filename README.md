@@ -182,10 +182,13 @@ If the sensor is not detected, the OLED shows:
 If the sensor is detected but readings are not valid yet, the OLED shows:
 
 - a full-screen finger-over-sensor prompt icon
+- after the first detected beat, the sensor base becomes a progress bar while
+  the reading stabilizes
 
 When readings are available, the OLED shows:
 
 - large BPM and SpO2 values side by side
+- smoothed BPM and SpO2 values to reduce display jitter
 - recent beat indicator on the bottom status line
 - beat count on the bottom status line
 - current red LED bias index on the bottom status line
@@ -219,7 +222,7 @@ No stable BPM or SpO2:
 - Keep the finger still and cover both LEDs and the detector.
 - Avoid strong ambient light hitting the sensor.
 - Wait several seconds for the beat detector and SpO2 calculator to stabilize.
-- IR LED current is set to `MAX30100_LED_CURR_24MA` in `src/Max30100Service.cpp`.
+- IR LED current is set to `MAX30100_LED_CURR_27_1MA` in `src/Max30100Service.cpp`.
 - Lower it if readings saturate or raise it if finger detection is still weak.
 
 OLED does not display:

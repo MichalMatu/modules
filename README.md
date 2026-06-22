@@ -7,10 +7,10 @@ This is the `module/cc1101` branch. The module-free board baseline stays on
 `main`, while other hardware variants live on their own `module/*` branches.
 
 The CC1101 branch is receive-only by default. It initializes a 433 MHz CC1101
-over SPI, switches the radio to OOK/ASK direct receive mode, captures pulse
-timings from `GDO0`, prints decoded remote-control candidates to Serial Monitor,
-and renders sniffer state on the onboard OLED. No transmit path is enabled in
-this firmware.
+over SPI, switches the radio to OOK/ASK direct receive mode, decodes common
+433 MHz remote-control frames from `GDO0` with `rc-switch`, prints codes to
+Serial Monitor, and renders sniffer state on the onboard OLED. No transmit path
+is enabled in this firmware.
 
 ## Hardware
 
@@ -103,14 +103,14 @@ lib/
 
 `Cc1101Service` owns the RadioLib `CC1101` instance and publishes a
 `Cc1101Snapshot` behind a FreeRTOS mutex, so the OLED and diagnostics tasks
-never read radio state while the receive task is updating pulse and decode data.
+never read radio state while the receive task is updating decoded code data.
 
 ## FreeRTOS Tasks
 
 | Task | Core | Priority | Period | Responsibility |
 | --- | ---: | ---: | ---: | --- |
-| `cc1101-rx` | 1 | 3 | 5 ms | Drain captured OOK/ASK pulses and decode bursts |
-| `oled-render` | 1 | 2 | 250 ms | Render boot, missing-radio, listening, or last-burst screen |
+| `cc1101-rx` | 1 | 3 | 5 ms | Poll `rc-switch` decoded OOK/ASK codes |
+| `oled-render` | 1 | 2 | 250 ms | Render boot, missing-radio, listening, or last-code screen |
 | `serial-diag` | 0 | 1 | 2000 ms | Print structured diagnostic lines |
 
 The Arduino `loop()` is intentionally idle and only calls `vTaskDelay()`.
@@ -124,6 +124,7 @@ CC1101 support is pulled through PlatformIO:
 ```ini
 lib_deps =
     jgromes/RadioLib @ 7.7.1
+    sui77/rc-switch @ 2.6.4
 ```
 
 ## OLED Screens
@@ -143,17 +144,16 @@ When listening, the OLED shows:
 - receive frequency
 - current RSSI
 - learned noise floor
-- accepted burst count
-- decoded burst count
-- rejected burst and edge-overflow counters
+- decoded code count
 
-When a burst is captured, the OLED briefly shows:
+When a code is decoded, the OLED briefly shows:
 
-- decoded bit count
+- decimal value
+- bit length
+- protocol number
+- pulse delay in microseconds
 - repeat count
-- decoded hex or bit string
-- pulse unit in microseconds
-- pulse count and burst RSSI
+- last-code RSSI
 
 ## Serial Monitor
 
@@ -164,23 +164,19 @@ periodic diagnostic lines:
 - listen state
 - frequency
 - RSSI and learned noise floor
-- accepted, decoded, and rejected burst counts
-- edge-capture overflow count
-- last decoded hex and bit string
+- decoded code count
+- last decimal value, bit length, protocol, pulse delay, repeat count, and binary value
 
 Press a 433 MHz OOK/ASK remote button while the monitor is open. Useful decoded
 lines look like this:
 
 ```text
-[ook] code bits=24 unit=350us pulses=49 rssi=-34.0dBm repeat=3 inv=no hex=0xA1B2C3 bits=101000011011001011000011 raw=H350 L1050 ...
+[rcswitch] value=10597059 bits=24 protocol=1 delay=350us repeat=3 rssi=-34.0dBm binary=101000011011001011000011 raw=10920,340,1048,...
 ```
 
-If the decoder cannot confidently classify a burst yet, it prints a raw pulse
-preview:
-
-```text
-[ook] burst pulses=42 unit=360us rssi=-41.0dBm raw=H360 L1080 H1080 L360 ...
-```
+The `raw=` field is a short preview of the timing array returned by
+`rc-switch`. It is printed to help compare CC1101 output with another 433 MHz
+receiver.
 
 ## Radio Notes
 
@@ -189,9 +185,9 @@ legal frequency, bandwidth, duty-cycle, and output-power limits for your region
 and use case.
 
 The sniffer is tuned for common 433 MHz OOK/ASK remote controls such as socket
-remotes. It groups `GDO0` pulse edges into bursts, estimates the pulse unit, and
-tries to classify short/long pairs as binary or tri-state symbols. It is a
-receive-only diagnostic tool, not a transmitter or replay tool.
+remotes. `rc-switch` recognizes common fixed-code protocols such as PT2262-like
+and EV1527-like frames. It is a receive-only diagnostic tool, not a transmitter
+or replay tool.
 
 ## Troubleshooting
 
@@ -203,12 +199,12 @@ CC1101 missing:
 - Confirm interrupt pins: `GD00=26`, `GD02=25`.
 - Keep the antenna connected before using the radio.
 
-No useful bursts:
+No decoded codes:
 
 - Confirm the transmitter is a 433 MHz OOK/ASK device.
 - Try changing `Cc1101FrequencyMhz` in `include/AppConfig.h` to match the exact source.
 - Try changing `Cc1101OokRxBandwidthKhz` between `203.0`, `270.0`, `325.0`, and `406.0`.
-- Try changing `OokMinBurstRssiDbm` if strong nearby signals are rejected or weak remotes are ignored.
+- Compare the `raw=` timing preview with a known-good 433 MHz receiver if one is available.
 - Hold the remote close to the antenna for the first test.
 
 OLED does not display:

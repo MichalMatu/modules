@@ -26,7 +26,7 @@ void printStartup()
                   AppConfig::Cc1101OokRxBandwidthKhz);
     Serial.printf("Serial Monitor: %lu\n",
                   static_cast<unsigned long>(AppConfig::SerialBaud));
-    Serial.println("Mode: OOK/ASK receive-only pulse sniffer");
+    Serial.println("Mode: OOK/ASK receive-only rc-switch decoder");
 }
 
 void printSnapshot(const Cc1101Snapshot &snapshot)
@@ -39,19 +39,18 @@ void printSnapshot(const Cc1101Snapshot &snapshot)
         return;
     }
 
-    Serial.printf("[diag] ook=ready listening=%s freq=%.2f rssi=%.1fdBm noise=%.1fdBm bursts=%lu decoded=%lu rejected=%lu overflow=%lu last_bits=%u repeat=%u hex=%s bits=%s\n",
+    Serial.printf("[diag] rcswitch=ready listening=%s freq=%.2f rssi=%.1fdBm noise=%.1fdBm codes=%lu last_value=%lu bits=%u protocol=%u delay=%uus repeat=%u binary=%s\n",
                   snapshot.listening ? "yes" : "no",
                   snapshot.frequencyMhz,
                   snapshot.rssiDbm,
                   snapshot.noiseFloorDbm,
-                  static_cast<unsigned long>(snapshot.burstCount),
-                  static_cast<unsigned long>(snapshot.decodedBurstCount),
-                  static_cast<unsigned long>(snapshot.rejectedBurstCount),
-                  static_cast<unsigned long>(snapshot.edgeOverflowCount),
-                  snapshot.lastBitCount,
+                  static_cast<unsigned long>(snapshot.receivedCodeCount),
+                  static_cast<unsigned long>(snapshot.lastValue),
+                  snapshot.lastBitLength,
+                  snapshot.lastProtocol,
+                  snapshot.lastDelayUs,
                   snapshot.repeatCount,
-                  snapshot.lastHex[0] != '\0' ? snapshot.lastHex : "-",
-                  snapshot.lastBits);
+                  snapshot.lastBinary[0] != '\0' ? snapshot.lastBinary : "-");
 }
 
 } // namespace DiagnosticsLogger

@@ -19,15 +19,7 @@ inline constexpr float Cc1101OokBitRateKbps = 4.8f;
 inline constexpr float Cc1101OokRxBandwidthKhz = 270.0f;
 inline constexpr int8_t Cc1101OutputPowerDbm = 0;
 
-inline constexpr uint16_t OokMinPulseUs = 120;
-inline constexpr uint16_t OokMaxPulseUs = 3200;
-inline constexpr uint16_t OokMinUnitUs = 250;
-inline constexpr uint16_t OokMaxUnitUs = 900;
-inline constexpr uint16_t OokBurstGapUs = 8000;
-inline constexpr uint16_t OokStaleBurstMs = 25;
-inline constexpr uint8_t OokMinBurstPulses = 24;
-inline constexpr float OokMinBurstRssiDbm = -105.0f;
-inline constexpr uint32_t OokRepeatWindowMs = 900;
+inline constexpr uint32_t RcSwitchRepeatWindowMs = 900;
 
 inline constexpr uint32_t SerialBaud = 115200;
 

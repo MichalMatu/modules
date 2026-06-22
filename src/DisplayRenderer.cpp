@@ -30,10 +30,10 @@ void DisplayRenderer::renderBootScreen()
     display_.clearBuffer();
     display_.setFont(u8g2_font_5x8_tf);
     drawLine(0, "ESP32 CC1101");
-    drawLine(1, "433 MHz RX");
+    drawLine(1, "433 OOK/ASK");
     drawLine(2, "Receive only");
-    drawLine(3, "SPI 18/19/23");
-    drawLine(4, "CS27 GDO26/25");
+    drawLine(3, "Press remote");
+    drawLine(4, "GDO0 GPIO26");
     display_.sendBuffer();
 }
 
@@ -60,41 +60,49 @@ void DisplayRenderer::renderListeningScreen(const Cc1101Snapshot &snapshot)
 
     display_.clearBuffer();
     display_.setFont(u8g2_font_5x8_tf);
-    snprintf(line, sizeof(line), "RX %.2f MHz", snapshot.frequencyMhz);
+    snprintf(line, sizeof(line), "OOK %.2f MHz", snapshot.frequencyMhz);
     drawLine(0, line);
-    snprintf(line, sizeof(line), "State:%s",
-             snapshot.listening ? "LISTEN" : "IDLE");
+    snprintf(line, sizeof(line), "%s RSSI %.0f",
+             snapshot.listening ? "ON" : "IDLE",
+             snapshot.rssiDbm);
     drawLine(1, line);
-    snprintf(line, sizeof(line), "Packets:%lu",
-             static_cast<unsigned long>(snapshot.packetCount));
+    snprintf(line, sizeof(line), "Noise %.0fdBm", snapshot.noiseFloorDbm);
     drawLine(2, line);
-    snprintf(line, sizeof(line), "RSSI %.1fdBm", snapshot.rssiDbm);
+    snprintf(line, sizeof(line), "Bursts:%lu Dec:%lu",
+             static_cast<unsigned long>(snapshot.burstCount),
+             static_cast<unsigned long>(snapshot.decodedBurstCount));
     drawLine(3, line);
-    snprintf(line, sizeof(line), "CRC:%lu ERR:%lu",
-             static_cast<unsigned long>(snapshot.crcErrorCount),
-             static_cast<unsigned long>(snapshot.receiveErrorCount));
+    snprintf(line, sizeof(line), "Reject:%lu Ovf:%lu",
+             static_cast<unsigned long>(snapshot.rejectedBurstCount),
+             static_cast<unsigned long>(snapshot.edgeOverflowCount));
     drawLine(4, line);
     display_.sendBuffer();
 }
 
-void DisplayRenderer::renderPacketScreen(const Cc1101Snapshot &snapshot)
+void DisplayRenderer::renderBurstScreen(const Cc1101Snapshot &snapshot)
 {
     char line[32];
 
     display_.clearBuffer();
     display_.setFont(u8g2_font_5x8_tf);
-    drawLine(0, "PACKET RX");
-    snprintf(line, sizeof(line), "Len:%u RSSI:%.1f",
-             snapshot.lastPacketLength,
-             snapshot.rssiDbm);
+    drawLine(0, snapshot.lastDecoded ? "OOK CODE" : "OOK BURST");
+    snprintf(line, sizeof(line), "Bits:%u Rep:%u",
+             snapshot.lastBitCount,
+             snapshot.repeatCount);
     drawLine(1, line);
-    snprintf(line, sizeof(line), "LQI:%u Count:%lu",
-             snapshot.lqi,
-             static_cast<unsigned long>(snapshot.packetCount));
+    if (snapshot.lastHex[0] != '\0') {
+        snprintf(line, sizeof(line), "%.21s", snapshot.lastHex);
+    } else {
+        snprintf(line, sizeof(line), "%.21s", snapshot.lastBits);
+    }
     drawLine(2, line);
-    snprintf(line, sizeof(line), "Data %.16s", snapshot.lastPacketHex);
+    snprintf(line, sizeof(line), "U:%uus P:%u",
+             snapshot.lastUnitUs,
+             snapshot.lastPulseCount);
     drawLine(3, line);
-    snprintf(line, sizeof(line), "%.16s", snapshot.lastPacketHex + 16);
+    snprintf(line, sizeof(line), "RSSI %.0fdBm%s",
+             snapshot.lastBurstRssiDbm,
+             snapshot.lastInverted ? " INV" : "");
     drawLine(4, line);
     display_.sendBuffer();
 }
@@ -111,8 +119,8 @@ void DisplayRenderer::render(const Cc1101Snapshot &snapshot)
         return;
     }
 
-    if (snapshot.recentPacket) {
-        renderPacketScreen(snapshot);
+    if (snapshot.recentBurst) {
+        renderBurstScreen(snapshot);
         return;
     }
 

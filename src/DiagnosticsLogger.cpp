@@ -9,7 +9,7 @@ namespace DiagnosticsLogger {
 void printStartup()
 {
     Serial.println();
-    Serial.println("ESP32 CC1101 receiver");
+    Serial.println("ESP32 CC1101 OOK/ASK sniffer");
     Serial.printf("OLED I2C: SDA=%u SCL=%u\n",
                   AppConfig::OledSdaPin,
                   AppConfig::OledSclPin);
@@ -20,14 +20,13 @@ void printStartup()
                   AppConfig::Cc1101CsnPin,
                   AppConfig::Cc1101Gdo0Pin,
                   AppConfig::Cc1101Gdo2Pin);
-    Serial.printf("CC1101 RX: %.2f MHz br=%.1f kbps dev=%.1f kHz bw=%.1f kHz\n",
+    Serial.printf("CC1101 OOK: %.2f MHz br=%.1f kbps bw=%.1f kHz\n",
                   AppConfig::Cc1101FrequencyMhz,
-                  AppConfig::Cc1101BitRateKbps,
-                  AppConfig::Cc1101FrequencyDeviationKhz,
-                  AppConfig::Cc1101RxBandwidthKhz);
+                  AppConfig::Cc1101OokBitRateKbps,
+                  AppConfig::Cc1101OokRxBandwidthKhz);
     Serial.printf("Serial Monitor: %lu\n",
                   static_cast<unsigned long>(AppConfig::SerialBaud));
-    Serial.println("Mode: receive only");
+    Serial.println("Mode: OOK/ASK receive-only pulse sniffer");
 }
 
 void printSnapshot(const Cc1101Snapshot &snapshot)
@@ -40,16 +39,19 @@ void printSnapshot(const Cc1101Snapshot &snapshot)
         return;
     }
 
-    Serial.printf("[diag] cc1101=ready listening=%s freq=%.2f packets=%lu crc=%lu err=%lu rssi=%.1fdBm lqi=%u len=%u data=%s\n",
+    Serial.printf("[diag] ook=ready listening=%s freq=%.2f rssi=%.1fdBm noise=%.1fdBm bursts=%lu decoded=%lu rejected=%lu overflow=%lu last_bits=%u repeat=%u hex=%s bits=%s\n",
                   snapshot.listening ? "yes" : "no",
                   snapshot.frequencyMhz,
-                  static_cast<unsigned long>(snapshot.packetCount),
-                  static_cast<unsigned long>(snapshot.crcErrorCount),
-                  static_cast<unsigned long>(snapshot.receiveErrorCount),
                   snapshot.rssiDbm,
-                  snapshot.lqi,
-                  snapshot.lastPacketLength,
-                  snapshot.lastPacketHex);
+                  snapshot.noiseFloorDbm,
+                  static_cast<unsigned long>(snapshot.burstCount),
+                  static_cast<unsigned long>(snapshot.decodedBurstCount),
+                  static_cast<unsigned long>(snapshot.rejectedBurstCount),
+                  static_cast<unsigned long>(snapshot.edgeOverflowCount),
+                  snapshot.lastBitCount,
+                  snapshot.repeatCount,
+                  snapshot.lastHex[0] != '\0' ? snapshot.lastHex : "-",
+                  snapshot.lastBits);
 }
 
 } // namespace DiagnosticsLogger

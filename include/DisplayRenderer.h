@@ -20,5 +20,5 @@ private:
     void renderBootScreen();
     void renderRadioMissingScreen(const Cc1101Snapshot &snapshot);
     void renderListeningScreen(const Cc1101Snapshot &snapshot);
-    void renderPacketScreen(const Cc1101Snapshot &snapshot);
+    void renderBurstScreen(const Cc1101Snapshot &snapshot);
 };

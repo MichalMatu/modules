@@ -2,15 +2,14 @@
 
 PlatformIO/Arduino firmware branch for an ESP32 LOLIN32-style battery board
 with an external 0.96" SSD1306 I2C OLED module and four integrated buttons.
-This branch also adds an HLK-LD2420 presence radar over UART2 plus the OUT
-presence line.
+This branch also adds starter MQ gas sensor inputs for an environment monitor.
 
 This is the `module/oled-buttons-lolin32-battery` branch. It starts from the
 `board/esp32-lolin32-battery` baseline and is reserved for the OLED/button
 panel wiring and firmware.
 
-The current firmware initializes the OLED, reads the buttons, samples LD2420 OUT
-and UART, and shows presence status on the display.
+The current firmware initializes the OLED, reads the buttons, samples MQ analog
+outputs, and shows raw ADC and relative percentage readings on the display.
 
 ## Board Reference
 
@@ -78,21 +77,29 @@ internal pull-ups. `GPIO34` and `GPIO35` are input-only pins and do not support
 internal pull-ups, so Button 1 and Button 2 need pull-ups on the OLED/button
 module or external pull-up resistors.
 
-## HLK-LD2420 Presence Radar
+## MQ Gas Sensors
 
-The LD2420 is powered from 3.3 V and uses UART2 for serial data. Its OUT pin is
-used as the firmware presence signal: `HIGH` means presence detected.
+The first environment monitor build reads three analog MQ sensor module outputs.
+The firmware shows raw 12-bit ADC values and percentage of ADC range. It does
+not calculate ppm yet; MQ sensors need warm-up, calibration, and load-resistor
+specific conversion before ppm values are meaningful.
 
-| LD2420 module | LOLIN32 ESP32 |
-| --- | --- |
-| VCC | 3V3 |
-| GND | GND |
-| UART TX | GPIO16 / RX2 |
-| UART RX | GPIO17 / TX2 |
-| OUT / presence | GPIO13 |
+| MQ module | Module pin | LOLIN32 ESP32 |
+| --- | --- | --- |
+| MQ-2 | AO | GPIO27 / ADC2 |
+| MQ-7 | AO | GPIO14 / ADC2 |
+| MQ-9 | AO | GPIO13 / ADC2 |
+| all MQ modules | GND | GND |
+| all MQ modules | VCC | module-required heater supply |
 
-UART is configured as `115200` baud, `8N1`. `GPIO13` is used for OUT instead of
-`GPIO15` because `GPIO15` is an ESP32 bootstrapping pin.
+All grounds must be common with ESP32 GND. ESP32 ADC inputs must stay at or
+below 3.3 V. Many MQ breakout boards are powered from 5 V and can output up to
+5 V on AO, so use a divider or level-safe module output before connecting AO to
+ESP32.
+
+`GPIO13`, `GPIO14`, and `GPIO27` are ADC2 pins. This firmware does not use
+Wi-Fi, so ADC2 is available. If Wi-Fi is added later, move the MQ sensors to an
+external ADC or free ADC1 inputs.
 
 ## Pins To Avoid
 
@@ -103,7 +110,7 @@ reason to use them:
 - `GPIO6` - `GPIO11`: ESP32 flash
 - `GPIO5`: onboard LED / default SPI SS on the Arduino `lolin32` variant
 - `GPIO0`, `GPIO2`, `GPIO12`, `GPIO15`: bootstrapping pins
-- `GPIO34`, `GPIO35`, `GPIO36`, `GPIO39`: input only
+- `GPIO34`, `GPIO35`, `GPIO36`, `GPIO39`: input only; valid for buttons or ADC
 
 ## Build And Upload
 
@@ -117,10 +124,9 @@ The firmware uses:
 
 - OLED I2C: `SDA=GPIO25`, `SCL=GPIO26`
 - buttons: `B1=GPIO34`, `B2=GPIO35`, `B3=GPIO32`, `B4=GPIO33`
-- LD2420 UART2: `RX2=GPIO16`, `TX2=GPIO17`, `115200 8N1`
-- LD2420 OUT presence: `GPIO13`, `HIGH` means presence
+- MQ analog inputs: `MQ-2=GPIO27`, `MQ-7=GPIO14`, `MQ-9=GPIO13`
 - Serial Monitor: `115200`
-- FreeRTOS tasks for LD2420 polling, OLED rendering, and periodic serial
+- FreeRTOS tasks for MQ polling, OLED rendering, and periodic serial
   diagnostics
 
 ## Project Layout
@@ -131,12 +137,12 @@ include/
   AppTasks.h           FreeRTOS task bootstrap
   DiagnosticsLogger.h  Serial Monitor diagnostics API
   DisplayRenderer.h    OLED rendering API
-  Ld2420Sensor.h       LD2420 OUT and UART stats API
+  MqSensors.h          MQ analog sensor API
 src/
   AppTasks.cpp         task creation and task loops
   DiagnosticsLogger.cpp
   DisplayRenderer.cpp
-  Ld2420Sensor.cpp
+  MqSensors.cpp
   main.cpp             Arduino setup/loop entrypoint
 ```
 
@@ -144,8 +150,8 @@ src/
 
 | Task | Core | Priority | Period | Responsibility |
 | --- | ---: | ---: | ---: | --- |
-| `ld2420` | 0 | 2 | 20 ms | Poll OUT and drain UART2 bytes |
-| `oled-render` | 1 | 2 | 250 ms | Render boot, status, wiring, and detail screens |
+| `mq-sensors` | 0 | 1 | 500 ms | Sample MQ analog outputs |
+| `oled-render` | 1 | 2 | 250 ms | Render boot, sensor, wiring, and detail screens |
 | `serial-diag` | 0 | 1 | 5000 ms | Print periodic heartbeat diagnostics |
 
 The Arduino `loop()` is intentionally idle and only calls `vTaskDelay()`.
@@ -154,8 +160,8 @@ The Arduino `loop()` is intentionally idle and only calls `vTaskDelay()`.
 
 - `B1`: previous screen
 - `B2`: next screen
-- `B3`: reset LD2420 UART statistics
-- `B4`: toggle status/details view
+- `B3`: reset MQ min/max statistics
+- `B4`: toggle percentage/raw view
 
 ## Branch Workflow
 

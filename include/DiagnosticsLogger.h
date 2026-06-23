@@ -1,10 +1,10 @@
 #pragma once
 
-#include "Ld2420Sensor.h"
+#include "MqSensors.h"
 
 namespace DiagnosticsLogger {
 
 void printStartup();
-void printHeartbeat(const Ld2420Sensor &sensor);
+void printHeartbeat(const MqSensors &sensors);
 
 } // namespace DiagnosticsLogger

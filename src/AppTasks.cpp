@@ -5,20 +5,20 @@
 #include "AppConfig.h"
 #include "DiagnosticsLogger.h"
 #include "DisplayRenderer.h"
-#include "Ld2420Sensor.h"
+#include "MqSensors.h"
 
 namespace {
 
-Ld2420Sensor ld2420Sensor;
-DisplayRenderer displayRenderer(ld2420Sensor);
+MqSensors mqSensors;
+DisplayRenderer displayRenderer(mqSensors);
 
-void ld2420Task(void *)
+void mqTask(void *)
 {
     TickType_t lastWake = xTaskGetTickCount();
 
     for (;;) {
-        ld2420Sensor.update();
-        vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(AppConfig::Ld2420UpdateMs));
+        mqSensors.update();
+        vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(AppConfig::MqUpdateMs));
     }
 }
 
@@ -37,7 +37,7 @@ void diagnosticsTask(void *)
     TickType_t lastWake = xTaskGetTickCount();
 
     for (;;) {
-        DiagnosticsLogger::printHeartbeat(ld2420Sensor);
+        DiagnosticsLogger::printHeartbeat(mqSensors);
         vTaskDelayUntil(&lastWake, pdMS_TO_TICKS(AppConfig::DiagnosticLogMs));
     }
 }
@@ -62,16 +62,16 @@ bool createPinnedTask(TaskFunction_t task,
 
 bool startApplicationTasks()
 {
-    ld2420Sensor.begin();
+    mqSensors.begin();
     displayRenderer.begin();
     DiagnosticsLogger::printStartup();
 
-    const bool sensorCreated = createPinnedTask(
-        ld2420Task,
-        "ld2420",
-        AppConfig::Ld2420TaskStack,
-        AppConfig::Ld2420TaskPriority,
-        AppConfig::Ld2420TaskCore);
+    const bool mqCreated = createPinnedTask(
+        mqTask,
+        "mq-sensors",
+        AppConfig::MqTaskStack,
+        AppConfig::MqTaskPriority,
+        AppConfig::MqTaskCore);
 
     const bool displayCreated = createPinnedTask(
         displayTask,
@@ -87,7 +87,7 @@ bool startApplicationTasks()
         AppConfig::DiagnosticsTaskPriority,
         AppConfig::DiagnosticsTaskCore);
 
-    if (!sensorCreated || !displayCreated || !diagnosticsCreated) {
+    if (!mqCreated || !displayCreated || !diagnosticsCreated) {
         Serial.println("[fatal] FreeRTOS task creation failed");
         return false;
     }

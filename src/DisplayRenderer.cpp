@@ -28,8 +28,8 @@ void setupButtonPin(uint8_t pin)
 
 } // namespace
 
-DisplayRenderer::DisplayRenderer(Ld2420Sensor &sensor)
-    : sensor_(sensor),
+DisplayRenderer::DisplayRenderer(MqSensors &sensors)
+    : sensors_(sensors),
       display_(U8G2_R0,
                U8X8_PIN_NONE,
                AppConfig::OledSclPin,
@@ -69,10 +69,10 @@ void DisplayRenderer::handleButtons()
         selectNextScreen();
     }
     if (pressedEdge(button3Pressed, lastButton3Pressed_)) {
-        sensor_.resetStats();
+        sensors_.resetStats();
     }
     if (pressedEdge(button4Pressed, lastButton4Pressed_)) {
-        screen_ = screen_ == Screen::Main ? Screen::Details : Screen::Main;
+        showRaw_ = !showRaw_;
     }
 
     lastButton1Pressed_ = button1Pressed;
@@ -117,12 +117,12 @@ void DisplayRenderer::renderBootScreen()
 
     display_.clearBuffer();
     display_.setFont(u8g2_font_5x8_tf);
-    drawLine(0, "LD2420 PRESENCE");
-    snprintf(line, sizeof(line), "OUT GPIO%u", AppConfig::Ld2420OutPin);
+    drawLine(0, "ENV MONITOR");
+    snprintf(line, sizeof(line), "MQ2  GPIO%u", AppConfig::Mq2AnalogPin);
     drawLine(1, line);
-    snprintf(line, sizeof(line), "RX2 %u TX2 %u", AppConfig::Ld2420RxPin, AppConfig::Ld2420TxPin);
+    snprintf(line, sizeof(line), "MQ7  GPIO%u", AppConfig::Mq7AnalogPin);
     drawLine(2, line);
-    snprintf(line, sizeof(line), "UART %lu 8N1", static_cast<unsigned long>(AppConfig::Ld2420UartBaud));
+    snprintf(line, sizeof(line), "MQ9  GPIO%u", AppConfig::Mq9AnalogPin);
     drawLine(3, line);
     snprintf(line, sizeof(line), "OLED SDA%u SCL%u", AppConfig::OledSdaPin, AppConfig::OledSclPin);
     drawLine(4, line);
@@ -132,25 +132,25 @@ void DisplayRenderer::renderBootScreen()
 void DisplayRenderer::renderMainScreen()
 {
     char line[32];
-    const Ld2420Sensor::Snapshot data = sensor_.snapshot();
+    const MqSensors::Snapshot data = sensors_.snapshot();
 
     display_.clearBuffer();
-    display_.setFont(u8g2_font_helvB14_tr);
-    display_.drawStr(0, 17, data.presenceDetected ? "PRESENCE" : "CLEAR");
-
     display_.setFont(u8g2_font_5x8_tf);
-    snprintf(line, sizeof(line), "OUT: %s", data.outHigh ? "HIGH" : "LOW");
-    drawLine(2, line);
-    snprintf(line, sizeof(line), "UART: %s", data.uartRecent ? "OK" : "--");
-    drawLine(3, line);
-    snprintf(line, sizeof(line), "BYTES: %lu", static_cast<unsigned long>(data.uartBytes));
-    drawLine(4, line);
-    if (data.lastDataAtMs > 0) {
-        snprintf(line, sizeof(line), "LAST: %lus", static_cast<unsigned long>(data.lastDataAgeMs / 1000));
-    } else {
-        snprintf(line, sizeof(line), "LAST: --");
+    drawLine(0, showRaw_ ? "ENV MONITOR RAW" : "ENV MONITOR %");
+
+    for (uint8_t i = 0; i < MqSensors::SensorCount; ++i) {
+        const MqSensors::Reading &reading = data.readings[i];
+        if (showRaw_) {
+            snprintf(line, sizeof(line), "%s raw %u", reading.name, reading.raw);
+        } else {
+            snprintf(line, sizeof(line), "%s %u%% raw %u", reading.name, reading.percent, reading.raw);
+        }
+        drawLine(1 + i, line);
     }
-    drawLine(5, line);
+
+    snprintf(line, sizeof(line), "Samples %lu", static_cast<unsigned long>(data.sampleCount));
+    drawLine(4, line);
+    drawLine(5, "B3 reset B4 raw/%");
     display_.sendBuffer();
 }
 
@@ -161,14 +161,13 @@ void DisplayRenderer::renderWiringScreen()
     display_.clearBuffer();
     display_.setFont(u8g2_font_5x8_tf);
     drawLine(0, "WIRING");
-    snprintf(line, sizeof(line), "LD VCC 3V3 GND GND");
+    snprintf(line, sizeof(line), "MQ2 AO -> GPIO%u", AppConfig::Mq2AnalogPin);
     drawLine(1, line);
-    snprintf(line, sizeof(line), "LD TX -> RX2 GPIO%u", AppConfig::Ld2420RxPin);
+    snprintf(line, sizeof(line), "MQ7 AO -> GPIO%u", AppConfig::Mq7AnalogPin);
     drawLine(2, line);
-    snprintf(line, sizeof(line), "LD RX -> TX2 GPIO%u", AppConfig::Ld2420TxPin);
+    snprintf(line, sizeof(line), "MQ9 AO -> GPIO%u", AppConfig::Mq9AnalogPin);
     drawLine(3, line);
-    snprintf(line, sizeof(line), "LD OUT -> GPIO%u", AppConfig::Ld2420OutPin);
-    drawLine(4, line);
+    drawLine(4, "ADC max 3.3V");
     snprintf(line, sizeof(line), "OLED %u/%u", AppConfig::OledSdaPin, AppConfig::OledSclPin);
     drawLine(5, line);
     display_.sendBuffer();
@@ -177,24 +176,25 @@ void DisplayRenderer::renderWiringScreen()
 void DisplayRenderer::renderDetailsScreen()
 {
     char line[32];
-    const Ld2420Sensor::Snapshot data = sensor_.snapshot();
+    const MqSensors::Snapshot data = sensors_.snapshot();
 
     display_.clearBuffer();
     display_.setFont(u8g2_font_5x8_tf);
-    drawLine(0, "LD2420 DETAILS");
-    snprintf(line, sizeof(line), "Presence: %s", data.presenceDetected ? "yes" : "no");
-    drawLine(1, line);
-    snprintf(line, sizeof(line), "OUT level: %s", data.outHigh ? "HIGH" : "LOW");
-    drawLine(2, line);
-    snprintf(line, sizeof(line), "UART bytes: %lu", static_cast<unsigned long>(data.uartBytes));
-    drawLine(3, line);
-    if (data.lastDataAtMs > 0) {
-        snprintf(line, sizeof(line), "UART age: %lums", static_cast<unsigned long>(data.lastDataAgeMs));
-    } else {
-        snprintf(line, sizeof(line), "UART age: --");
+    drawLine(0, "MQ MIN/MAX RAW");
+    for (uint8_t i = 0; i < MqSensors::SensorCount; ++i) {
+        const MqSensors::Reading &reading = data.readings[i];
+        snprintf(line,
+                 sizeof(line),
+                 "%s %u/%u now %u",
+                 reading.name,
+                 reading.minRaw,
+                 reading.maxRaw,
+                 reading.raw);
+        drawLine(1 + i, line);
     }
+    snprintf(line, sizeof(line), "Last %lums", static_cast<unsigned long>(data.lastSampleAgeMs));
     drawLine(4, line);
-    drawLine(5, "B3 resets stats");
+    drawLine(5, "B1/B2 screens");
     display_.sendBuffer();
 }
 
